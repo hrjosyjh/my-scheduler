@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* FullCalendar Customization */
+.fc-event {
+  cursor: pointer;
+}

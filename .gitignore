@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.DS_Store
+server/schedule.db
+server/node_modules/
+client/node_modules/
+client/dist/
+*.log
