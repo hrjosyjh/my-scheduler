@@ -3,7 +3,7 @@
 ## 1. 프로젝트 개요
 사용자별 인증 시스템을 갖춘 웹 기반 일정 관리 애플리케이션입니다. 
 - **개인 일정 관리:** CRUD 및 날짜/시간 기반 할 일(To-Do) 관리.
-- **외부 일정 통합:** iCal(.ics) URL 연동 및 필터링.
+- **외부 일정 통합:** iCal(.ics) 구독 + OAuth 기반 연결 캘린더(쓰기) 연동.
 - **다국어 지원:** 한국어(Korean) / 영어(English) 전환 가능.
 - **보안:** JWT 인증, 비밀번호 암호화.
 
@@ -32,6 +32,10 @@
     - `allDay`: `0`(시간 지정) 또는 `1`(하루 종일)
     - `completed`: `1`(완료) 또는 `0`(미완료)
 - **`external_calendars`**: 외부 iCal URL 소스 (name, url, color)
+- **`connected_accounts`**: OAuth로 연결된 계정(Provider) 토큰 저장(서버에서 암호화) 및 갱신 정보
+- **`connected_calendars`**: 연결된 계정에서 가져온 캘린더 목록(Provider 캘린더 ID, 표시 색상, 쓰기 가능 여부, 활성화 여부)
+- **`oauth_states`**: OAuth 시작/콜백 흐름에서 사용하는 1회성 state 저장(CSRF 방지 + 만료)
+- **`event_external_links`**: 로컬 이벤트(`events`)와 외부 Provider 이벤트/캘린더 간 매핑(연결 캘린더에 생성된 이벤트 추적)
 
 ---
 
@@ -49,6 +53,31 @@ npm start
 ```
 - 접속: http://localhost:5173
 
+### 🔐 외부 캘린더(쓰기) 연동 설정
+
+OAuth 기반 연결 캘린더(쓰기)는 서버 환경변수 설정이 필요합니다. (변수명만 안내하며, 실제 값/시크릿은 문서에 포함하지 않습니다)
+
+필수 환경변수(이름):
+- `TOKEN_ENCRYPTION_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `NAVERWORKS_CLIENT_ID`
+- `NAVERWORKS_CLIENT_SECRET`
+- `NAVERWORKS_REDIRECT_URI`
+- `NAVERWORKS_AUTH_URL`
+- `NAVERWORKS_TOKEN_URL`
+- `NAVERWORKS_API_BASE`
+
+선택 환경변수(이름):
+- `CLIENT_URL`
+- `NAVERWORKS_SCOPE`
+
+설정 절차:
+1. 서버 환경변수를 설정합니다.
+2. 앱을 실행합니다: `npm start`
+3. 화면에서 **Connected calendars** 섹션의 **Connect (Google / NAVER WORKS)** 버튼을 클릭해 OAuth 연결을 완료합니다.
+
 ---
 
 ## 5. 구현 기능 목록 (Feature List)
@@ -59,12 +88,25 @@ npm start
 
 ### ✅ 일정 관리 (Calendar)
 - 월간/주간/일간 달력 보기
+- Google Calendar 스타일 UI 쉘 + 다크 모드
 - **사이드바 (Sidebar):** 
     - 내 일정 및 구독한 외부 캘린더 목록 표시.
     - **체크리스트 필터링:** 각 캘린더별 표시/숨김 토글 (LocalStorage 상태 유지).
     - **삭제 기능:** 구독한 외부 캘린더 삭제 기능.
-- 외부 일정(Google Calendar 등) iCal 연동.
+- 외부 일정 iCal(.ics) 구독 연동.
 - 일정 클릭 시 상세 정보 확인 및 수정/삭제
+- 일정 텍스트 색상(이벤트별) 지원
+- 종일(All-day) 일정은 시간 표시 숨김
+- 달력 셀의 'more' 팝오버 동작/표시 이슈 수정
+
+### ✅ 외부 캘린더 (구독 / iCal)
+- 구독 캘린더 속성 편집 (예: 이름/URL/색상)
+- 구독 이벤트를 로컬 오버라이드로 편집 (복사 생성 + 원본 숨김)
+
+### ✅ 연결된 캘린더 (쓰기 / OAuth)
+- **Connected calendars:** Google + NAVER WORKS 계정 OAuth 연결
+- 연결된 캘린더 목록 동기화 및 쓰기 가능 캘린더 표시
+- 일정 생성 시 대상 연결 캘린더를 선택해 해당 캘린더로 이벤트 생성
 
 ### ✅ 할 일 관리 (To-Do List)
 - **보기 모드 전환:** 달력(Calendar) ↔ 할 일 목록(List View)
@@ -88,11 +130,18 @@ npm start
     - To-Do List 전용 뷰 추가.
     - 할 일 생성 시 날짜 및 시간(Time) 지정 기능 추가.
     - 달력과 To-Do 리스트 간 데이터 완전 동기화 구현.
-- **v1.4.0 (Current):**
+- **v1.4.0:**
     - **캘린더 사이드바 추가:** 외부 캘린더 목록 관리 및 필터링(체크박스) 기능 구현.
     - **필터 상태 유지:** 브라우저 새로고침 시에도 체크된 캘린더 상태 유지(LocalStorage).
     - **To-Do UI 개선:** 진행 중/완료 탭(Tab) 분리 적용.
     - **GitHub 배포:** 소스 코드 GitHub 리포지토리 업로드 완료.
+- **v1.5.0:**
+    - Google Calendar 스타일 UI 쉘 + 다크 모드.
+    - 구독(외부) 캘린더 속성 편집 지원.
+    - 구독 이벤트 로컬 오버라이드 편집(복사+숨김) 지원.
+    - 이벤트별 텍스트 색상 지원, 종일 일정 시간 표시 숨김.
+    - 달력 'more' 팝오버 이슈 수정.
+    - **Connected calendars(쓰기):** Google/NAVER WORKS OAuth 연결 및 캘린더 선택 생성 지원.
 
 ---
 

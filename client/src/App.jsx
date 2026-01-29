@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import axios from 'axios';
-import { FaCalendarPlus, FaTrash, FaCheck, FaTimes, FaSignOutAlt, FaLink, FaGlobe, FaLanguage, FaListUl, FaCalendarAlt, FaPlus, FaClock, FaCalendarCheck } from 'react-icons/fa';
+import { FaCalendarPlus, FaTrash, FaCheck, FaSignOutAlt, FaLink, FaLanguage, FaListUl, FaCalendarAlt, FaPlus, FaClock, FaBars, FaChevronLeft, FaChevronRight, FaEdit } from 'react-icons/fa';
 
 // --- Multi-language Resources ---
 const translations = {
@@ -51,7 +51,20 @@ const translations = {
     selectDateTime: "Select Date & Time",
     myCalendars: "My Calendars",
     extCalendars: "External Calendars",
-    mySchedule: "My Schedule"
+    connectProviders: "Connect Providers",
+    connectGoogle: "Connect Google",
+    connectNaverWorks: "Connect NAVER WORKS",
+    calendar: "Calendar",
+    localCalendar: "Local",
+    edit: "Edit",
+    editCal: "Edit External Calendar",
+    updatedCal: "External calendar updated!",
+    mySchedule: "My Schedule",
+    today: "Today",
+    month: "Month",
+    week: "Week",
+    day: "Day",
+    menu: "Menu"
   },
   ko: {
     appTitle: "📅 나의 일정 관리",
@@ -96,7 +109,20 @@ const translations = {
     selectDateTime: "날짜 및 시간 선택",
     myCalendars: "내 캘린더",
     extCalendars: "구독한 캘린더",
-    mySchedule: "기본 일정"
+    connectProviders: "계정 연결",
+    connectGoogle: "Google 연결",
+    connectNaverWorks: "NAVER WORKS 연결",
+    calendar: "캘린더",
+    localCalendar: "로컬",
+    edit: "수정",
+    editCal: "외부 캘린더 수정",
+    updatedCal: "외부 캘린더가 업데이트되었습니다!",
+    mySchedule: "기본 일정",
+    today: "오늘",
+    month: "월",
+    week: "주",
+    day: "일",
+    menu: "메뉴"
   }
 };
 
@@ -110,13 +136,37 @@ const getLocalISOString = (date = new Date()) => {
 };
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(() => {
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+    }
+    return storedToken;
+  });
+
+  const user = useMemo(() => {
+    if (!token) return null;
+    try {
+      const payloadPart = token.split('.')[1];
+      if (!payloadPart) return null;
+      const payload = JSON.parse(atob(payloadPart));
+      if (!payload?.username) return null;
+      return { username: payload.username };
+    } catch (e) {
+      console.error('Failed to parse auth token', e);
+      return null;
+    }
+  }, [token]);
   
   // Defensive: Ensure lang is valid
   const storedLang = localStorage.getItem('lang');
   const initialLang = (storedLang === 'en' || storedLang === 'ko') ? storedLang : 'ko';
   const [lang, setLang] = useState(initialLang);
+
+  useEffect(() => {
+    document.documentElement.dataset.lang = lang;
+    document.documentElement.dataset.theme = 'dark';
+  }, [lang]);
 
   // Fallback for translations
   const t = translations[lang] || translations['ko'];
@@ -124,20 +174,28 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setToken(null);
-    setUser(null);
     delete axios.defaults.headers.common['Authorization'];
   };
 
   useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setUser({ username: payload.username });
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      } catch (e) {
-        console.error("Token invalid:", e);
-        handleLogout();
-      }
+    if (!token) {
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+      return;
+    }
+
+    try {
+      const payloadPart = token.split('.')[1];
+      if (!payloadPart) throw new Error('Invalid token');
+      const payload = JSON.parse(atob(payloadPart));
+      if (!payload?.username) throw new Error('Invalid token');
+
+      localStorage.setItem('token', token);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } catch (e) {
+      console.error('Invalid auth token', e);
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
     }
   }, [token]);
 
@@ -147,10 +205,9 @@ function App() {
     localStorage.setItem('lang', newLang);
   };
 
-  const handleLogin = (newToken, username) => {
+  const handleLogin = (newToken) => {
     localStorage.setItem('token', newToken);
     setToken(newToken);
-    setUser({ username });
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
   };
 
@@ -187,16 +244,16 @@ function AuthScreen({ onLogin, t, lang, toggleLang }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 relative p-4">
+    <div className="min-h-screen flex items-center justify-center app-auth-bg relative p-4">
       <button 
         onClick={toggleLang} 
-        className="absolute top-4 right-4 bg-white px-3 py-1 rounded shadow text-sm font-bold hover:bg-gray-50 flex items-center gap-2 z-10"
+        className="absolute top-4 right-4 app-iconbtn flex items-center gap-2 z-10"
       >
         <FaLanguage className="text-lg"/> {lang === 'en' ? '한국어' : 'English'}
       </button>
 
-      <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-sm">
-        <h2 className="text-2xl font-bold mb-6 text-center text-indigo-600">
+      <div className="app-auth-card w-full max-w-sm">
+        <h2 className="text-2xl font-bold mb-6 text-center text-slate-900">
           {isRegister ? t.createAccount : t.welcomeBack}
         </h2>
         {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
@@ -205,7 +262,7 @@ function AuthScreen({ onLogin, t, lang, toggleLang }) {
             <label className="block text-sm font-medium text-gray-700">{t.username}</label>
             <input 
               type="text" required 
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+              className="mt-1 block w-full app-field"
               value={username} onChange={(e) => setUsername(e.target.value)}
             />
           </div>
@@ -213,17 +270,17 @@ function AuthScreen({ onLogin, t, lang, toggleLang }) {
             <label className="block text-sm font-medium text-gray-700">{t.password}</label>
             <input 
               type="password" required 
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+              className="mt-1 block w-full app-field"
               value={password} onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition">
+          <button type="submit" className="w-full app-primarybtn py-2">
             {isRegister ? t.signup : t.login}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">
           {isRegister ? t.alreadyAccount : t.noAccount}
-          <button onClick={() => setIsRegister(!isRegister)} className="ml-1 text-indigo-600 font-semibold hover:underline">
+          <button onClick={() => setIsRegister(!isRegister)} className="ml-1 text-blue-700 font-semibold hover:underline">
             {isRegister ? t.login : t.signup}
           </button>
         </p>
@@ -236,18 +293,43 @@ function AuthScreen({ onLogin, t, lang, toggleLang }) {
 function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
   const [events, setEvents] = useState([]);
   const [calendars, setCalendars] = useState([]);
+  const [connectedCalendars, setConnectedCalendars] = useState([]);
   
   // Load visibility from LocalStorage on init
   const [visibleCalendars, setVisibleCalendars] = useState(() => {
       const saved = localStorage.getItem(`visible_calendars_${user.username}`);
       if (saved) {
-          try {
-              return new Set(JSON.parse(saved));
-          } catch (e) {
-              return new Set(['local']);
-          }
+           try {
+                return new Set(JSON.parse(saved));
+             } catch {
+                 return new Set(['local']);
+             }
       }
       return new Set(['local']);
+  });
+
+  const [hiddenExternalEventIds, setHiddenExternalEventIds] = useState(() => {
+      const saved = localStorage.getItem(`hidden_external_events_${user.username}`);
+      if (!saved) return new Set();
+      try {
+          const parsed = JSON.parse(saved);
+          if (!Array.isArray(parsed)) return new Set();
+          return new Set(parsed.map(String));
+      } catch {
+          return new Set();
+      }
+  });
+
+  const [externalOverrideMap, setExternalOverrideMap] = useState(() => {
+      const saved = localStorage.getItem(`external_overrides_${user.username}`);
+      if (!saved) return {};
+      try {
+          const parsed = JSON.parse(saved);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+          return parsed;
+      } catch {
+          return {};
+      }
   });
 
   const [viewMode, setViewMode] = useState('calendar');
@@ -255,38 +337,81 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [extModalOpen, setExtModalOpen] = useState(false);
+  const [extIsEditing, setExtIsEditing] = useState(false);
+  const [extEditId, setExtEditId] = useState(null);
   
   // Quick Add States
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [quickTaskDateTime, setQuickTaskDateTime] = useState(getLocalISOString());
 
   const [currentEvent, setCurrentEvent] = useState({
-    id: null, title: '', start: '', end: '', allDay: false, description: '', color: '#3788d8', completed: false
+    id: null, connectedCalendarId: '', title: '', start: '', end: '', allDay: false, description: '', color: '#3788d8', completed: false
   });
   const [extCalendar, setExtCalendar] = useState({ url: '', name: '', color: '#10b981' });
   const [isEditing, setIsEditing] = useState(false);
   const calendarRef = useRef(null);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [calendarView, setCalendarView] = useState('dayGridMonth');
+  const [calendarTitle, setCalendarTitle] = useState('');
 
   // Persist visibility changes
   useEffect(() => {
       localStorage.setItem(`visible_calendars_${user.username}`, JSON.stringify([...visibleCalendars]));
   }, [visibleCalendars, user.username]);
 
-  useEffect(() => { 
-      fetchEvents(); 
-      fetchCalendars();
-  }, []);
+  // Load per-user hidden/override state
+  useEffect(() => {
+      const hiddenSaved = localStorage.getItem(`hidden_external_events_${user.username}`);
+      const overridesSaved = localStorage.getItem(`external_overrides_${user.username}`);
 
-  const fetchEvents = async () => {
+      if (hiddenSaved) {
+          try {
+              const parsed = JSON.parse(hiddenSaved);
+              setHiddenExternalEventIds(new Set(Array.isArray(parsed) ? parsed.map(String) : []));
+          } catch {
+              setHiddenExternalEventIds(new Set());
+          }
+      } else {
+          setHiddenExternalEventIds(new Set());
+      }
+
+      if (overridesSaved) {
+          try {
+              const parsed = JSON.parse(overridesSaved);
+              setExternalOverrideMap(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
+          } catch {
+              setExternalOverrideMap({});
+          }
+      } else {
+          setExternalOverrideMap({});
+      }
+  }, [user.username]);
+
+  useEffect(() => {
+      localStorage.setItem(
+          `hidden_external_events_${user.username}`,
+          JSON.stringify([...hiddenExternalEventIds])
+      );
+  }, [hiddenExternalEventIds, user.username]);
+
+  useEffect(() => {
+      localStorage.setItem(
+          `external_overrides_${user.username}`,
+          JSON.stringify(externalOverrideMap)
+      );
+  }, [externalOverrideMap, user.username]);
+
+  const fetchEvents = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/events`);
       if (response.data.message === 'success') setEvents(response.data.data);
     } catch (error) {
       if(error.response && error.response.status === 401) onLogout();
     }
-  };
+  }, [onLogout]);
 
-  const fetchCalendars = async () => {
+  const fetchCalendars = useCallback(async () => {
       try {
           const response = await axios.get(`${API_URL}/calendars`);
           if (response.data.message === 'success') {
@@ -302,11 +427,37 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
                       return next;
                   });
               }
-          }
+           }
+         } catch (error) {
+             console.error("Failed to fetch calendars", error);
+         }
+    }, [user.username]);
+
+  const fetchConnectedCalendars = useCallback(async () => {
+      try {
+          const response = await axios.get(`${API_URL}/connected-calendars`);
+          if (response.data.message === 'success') setConnectedCalendars(response.data.data || []);
       } catch (error) {
-          console.error("Failed to fetch calendars");
+          if (error.response && error.response.status === 401) {
+              onLogout();
+              return;
+          }
+          // Non-fatal: user may not have any provider connected
       }
-  };
+  }, [onLogout]);
+
+  useEffect(() => {
+      fetchEvents();
+      fetchCalendars();
+
+      const connectedProvider = new URLSearchParams(window.location.search).get('connected');
+      fetchConnectedCalendars();
+      if (connectedProvider) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('connected');
+          window.history.replaceState({}, '', url.toString());
+      }
+  }, [fetchEvents, fetchCalendars, fetchConnectedCalendars]);
 
   const deleteCalendar = async (e, id) => {
       e.stopPropagation();
@@ -335,8 +486,35 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
   const saveEvent = async (eventToSave = currentEvent) => {
     if (!eventToSave.title) return alert(t.enterTitle);
     try {
-      if (eventToSave.id) await axios.put(`${API_URL}/events/${eventToSave.id}`, eventToSave);
-      else await axios.post(`${API_URL}/events`, eventToSave);
+      const eventId = eventToSave.id?.toString();
+
+      // External events are read-only; saving creates a local override and hides the external source event
+      if (eventId && eventId.startsWith('ext-')) {
+        const { id: _id, connectedCalendarId: _cc, ...payload } = eventToSave;
+        const cleanTitle = (payload.title || '').replace(/^\[Ext\]\s*/i, '');
+        const titleToSave = cleanTitle.trim() ? cleanTitle : payload.title;
+        const res = await axios.post(`${API_URL}/events`, { ...payload, title: titleToSave });
+        const newLocalId = res.data?.data?.id;
+
+        setHiddenExternalEventIds(prev => {
+          const next = new Set(prev);
+          next.add(eventId);
+          return next;
+        });
+        setExternalOverrideMap(prev => ({ ...prev, [eventId]: newLocalId }));
+
+        setModalOpen(false);
+        fetchEvents();
+        return;
+      }
+
+      const { connectedCalendarId, ...payload } = eventToSave;
+      if (eventToSave.id) {
+          await axios.put(`${API_URL}/events/${eventToSave.id}`, payload);
+      } else {
+          const ccId = connectedCalendarId ? Number(connectedCalendarId) : null;
+          await axios.post(`${API_URL}/events`, ccId ? { ...payload, connectedCalendarId: ccId } : payload);
+      }
       setModalOpen(false);
       fetchEvents();
     } catch { alert('Failed'); }
@@ -345,6 +523,17 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
   const deleteEvent = async (id = currentEvent.id) => {
     if (!window.confirm(t.confirmDelete)) return;
     try {
+      const eventId = id?.toString();
+      if (eventId && eventId.startsWith('ext-')) {
+        setHiddenExternalEventIds(prev => {
+          const next = new Set(prev);
+          next.add(eventId);
+          return next;
+        });
+        setModalOpen(false);
+        return;
+      }
+
       await axios.delete(`${API_URL}/events/${id}`);
       setModalOpen(false);
       fetchEvents();
@@ -382,24 +571,66 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
   const saveExternalCalendar = async () => {
     if(!extCalendar.url) return alert('URL required');
     try {
+        if (extIsEditing) {
+            await axios.put(`${API_URL}/calendars/${extEditId}`, extCalendar);
+            setExtModalOpen(false);
+            setExtIsEditing(false);
+            setExtEditId(null);
+            setExtCalendar({ url: '', name: '', color: '#10b981' });
+            fetchCalendars();
+            fetchEvents();
+            alert(t.updatedCal);
+            return;
+        }
+
         const res = await axios.post(`${API_URL}/calendars`, extCalendar);
         setExtModalOpen(false);
         const newCalId = res.data.id;
         setExtCalendar({ url: '', name: '', color: '#10b981' });
-        
+
         // Auto-enable newly added calendar
         setVisibleCalendars(prev => new Set(prev).add(newCalId));
-        
+
         fetchCalendars();
-        fetchEvents(); 
+        fetchEvents();
         alert(t.connected);
-    } catch { alert('Failed'); }
+    } catch (err) {
+        if (err.response?.status === 401) {
+            onLogout();
+            return;
+        }
+        alert(err.response?.data?.error || err.message || 'Failed');
+    }
+  };
+
+  const openAddExternalCalendar = () => {
+      setExtIsEditing(false);
+      setExtEditId(null);
+      setExtCalendar({ url: '', name: '', color: '#10b981' });
+      setExtModalOpen(true);
+  };
+
+  const openEditExternalCalendar = (e, cal) => {
+      e.stopPropagation();
+      setExtIsEditing(true);
+      setExtEditId(cal.id);
+      setExtCalendar({ url: cal.url || '', name: cal.name || '', color: cal.color || '#10b981' });
+      setExtModalOpen(true);
+  };
+
+  const closeExternalCalendarModal = () => {
+      setExtModalOpen(false);
+      setExtIsEditing(false);
+      setExtEditId(null);
+      setExtCalendar({ url: '', name: '', color: '#10b981' });
   };
 
   // Filter events based on visible calendars
   const filteredEvents = events.filter(e => {
-      if (e.id.toString().startsWith('ext-')) {
-          const parts = e.id.toString().split('-');
+      const id = e.id?.toString() || '';
+      if (id.startsWith('ext-')) {
+          if (hiddenExternalEventIds.has(id)) return false;
+          const parts = id.split('-');
           const calId = parseInt(parts[1], 10);
           return visibleCalendars.has(calId);
       } else {
@@ -407,254 +638,433 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
       }
   });
 
-  const activeTasks = filteredEvents.filter(e => !e.completed && !e.id.toString().startsWith('ext-'));
-  const completedTasks = filteredEvents.filter(e => e.completed && !e.id.toString().startsWith('ext-'));
+  const activeTasks = filteredEvents.filter(e => !e.completed && !e.id.toString().startsWith('ext-') && !e.is_provider_linked);
+  const completedTasks = filteredEvents.filter(e => e.completed && !e.id.toString().startsWith('ext-') && !e.is_provider_linked);
 
   const formatDT = (isoStr) => {
       const d = new Date(isoStr);
       return `${d.toLocaleDateString()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  return (
-    <div className="min-h-screen bg-gray-100 p-2 sm:p-4 font-sans flex flex-col h-screen overflow-hidden">
-        {/* Header */}
-        <div className="bg-indigo-600 p-4 text-white flex justify-between items-center shadow-md flex-shrink-0 rounded-lg mb-2">
-            <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">{t.appTitle}</h1>
-            <div className="flex gap-2">
-                 <button onClick={toggleLang} className="bg-indigo-700 px-3 py-1 rounded hover:bg-indigo-800 text-xs font-bold flex items-center gap-1">
-                    <FaLanguage className="text-lg"/> {lang === 'en' ? '한글' : 'Eng'}
-                </button>
-                <button onClick={onLogout} className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-xs">
-                    <FaSignOutAlt />
-                </button>
-            </div>
-        </div>
+  const withCalendarApi = (fn) => {
+      const api = calendarRef.current?.getApi();
+      if (!api) return;
+      fn(api);
+  };
 
-        <div className="flex flex-1 overflow-hidden gap-4">
-            {/* Sidebar (Calendar List) */}
-            <div className="hidden lg:flex flex-col w-64 bg-white rounded-xl shadow-lg p-4 overflow-y-auto">
-                <div className="mb-6">
-                    <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">{t.myCalendars}</h3>
-                    <div className="flex items-center gap-2 mb-2 p-2 rounded hover:bg-gray-50 cursor-pointer" onClick={() => toggleCalendarVisibility('local')}>
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${visibleCalendars.has('local') ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-gray-300'}`}>
-                            {visibleCalendars.has('local') && <FaCheck className="text-xs" />}
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">{t.mySchedule}</span>
-                    </div>
+  const handleToday = () => {
+      withCalendarApi((api) => api.today());
+  };
+
+  const handlePrev = () => {
+      withCalendarApi((api) => api.prev());
+  };
+
+  const handleNext = () => {
+      withCalendarApi((api) => api.next());
+  };
+
+  const handleChangeView = (type) => {
+      setCalendarView(type);
+      withCalendarApi((api) => api.changeView(type));
+  };
+
+  const openNewEventModal = () => {
+      setCurrentEvent({ id: null, connectedCalendarId: '', title: '', start: getLocalISOString(), end: '', allDay: false, description: '', color: '#3788d8', completed: false });
+      setIsEditing(false);
+      setModalOpen(true);
+  };
+
+  const connectProvider = async (provider) => {
+      try {
+          const res = await axios.get(`${API_URL}/oauth/${provider}/start`);
+          if (res.data?.authUrl) {
+              window.location.href = res.data.authUrl;
+              return;
+          }
+          alert('Failed');
+      } catch (err) {
+          if (err.response?.status === 401) {
+              onLogout();
+              return;
+          }
+          alert(err.response?.data?.error || err.message || 'Failed');
+      }
+  };
+
+  const SidebarContent = ({ compact }) => (
+      <div className={`app-sidebar-inner ${compact ? 'compact' : ''}`}>
+          <div className="app-sidebar-section">
+              <h3 className="app-sidebar-label">{t.myCalendars}</h3>
+              <button type="button" className="app-calrow" onClick={() => toggleCalendarVisibility('local')}
+                  aria-pressed={visibleCalendars.has('local')}
+              >
+                  <span className="app-calcheck" aria-hidden="true">
+                      <span className={`app-calcheckbox ${visibleCalendars.has('local') ? 'is-on' : ''}`}></span>
+                  </span>
+                  <span className="app-calname">{t.mySchedule}</span>
+              </button>
+          </div>
+
+           <div className="app-sidebar-section">
+                <div className="app-sidebar-rowhead">
+                    <h3 className="app-sidebar-label">{t.extCalendars}</h3>
+                    <button type="button" onClick={openAddExternalCalendar} className="app-linkbtn">
+                        <FaPlus /> {t.linkCalendar}
+                    </button>
                 </div>
-
-                <div>
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider">{t.extCalendars}</h3>
-                        <button onClick={() => setExtModalOpen(true)} className="text-indigo-600 hover:text-indigo-800 text-xs font-bold flex items-center gap-1">
-                            <FaPlus /> {t.linkCalendar}
+               {calendars.length === 0 && <p className="app-empty">No calendars</p>}
+               {calendars.map(cal => (
+                    <div key={cal.id} className="app-calrowwrap">
+                        <button type="button" className="app-calrow" onClick={() => toggleCalendarVisibility(cal.id)}
+                            aria-pressed={visibleCalendars.has(cal.id)}
+                        >
+                           <span className="app-calcheck" aria-hidden="true">
+                               <span className={`app-calcheckbox ${visibleCalendars.has(cal.id) ? 'is-on' : ''}`} style={{ borderColor: cal.color, backgroundColor: visibleCalendars.has(cal.id) ? cal.color : 'transparent' }}></span>
+                           </span>
+                           <span className="app-calname" title={cal.name || 'Untitled'}>{cal.name || 'Untitled'}</span>
+                        </button>
+                        <button type="button" onClick={(e) => openEditExternalCalendar(e, cal)} className="app-editbtn" title={t.edit}>
+                            <FaEdit />
+                        </button>
+                        <button type="button" onClick={(e) => deleteCalendar(e, cal.id)} className="app-delbtn" title={t.delete}>
+                            <FaTrash />
                         </button>
                     </div>
-                    {calendars.length === 0 && <p className="text-xs text-gray-400 italic p-2">No calendars</p>}
-                    {calendars.map(cal => (
-                        <div key={cal.id} className="group flex items-center gap-2 mb-2 p-2 rounded hover:bg-gray-50 cursor-pointer" onClick={() => toggleCalendarVisibility(cal.id)}>
-                             <div className={`w-5 h-5 rounded border flex items-center justify-center text-white`} 
-                                  style={{
-                                      backgroundColor: visibleCalendars.has(cal.id) ? cal.color : 'white',
-                                      borderColor: cal.color
-                                  }}>
-                                {visibleCalendars.has(cal.id) && <FaCheck className="text-xs" />}
-                            </div>
-                            <span className="text-sm font-medium text-gray-700 truncate flex-1">{cal.name || 'Untitled'}</span>
-                            <button 
-                                onClick={(e) => deleteCalendar(e, cal.id)} 
-                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition px-1"
-                                title={t.delete}
-                            >
-                                <FaTrash className="text-xs" />
+                ))}
+            </div>
+
+           <div className="app-sidebar-section">
+               <h3 className="app-sidebar-label">{t.connectProviders}</h3>
+               <div className="app-provider-actions">
+                   <button
+                       type="button"
+                       className="app-linkbtn w-full justify-center"
+                        onClick={() => connectProvider('google')}
+                   >
+                       {t.connectGoogle}
+                   </button>
+                   <button
+                       type="button"
+                       className="app-linkbtn w-full justify-center"
+                        onClick={() => connectProvider('naverworks')}
+                   >
+                       {t.connectNaverWorks}
+                   </button>
+               </div>
+           </div>
+
+          <div className="app-sidebar-footer">
+              <div className="app-seg">
+                  <button type="button" onClick={() => setViewMode('calendar')} className={`app-segbtn ${viewMode === 'calendar' ? 'is-on' : ''}`}>
+                      <FaCalendarAlt /> {t.viewCalendar}
+                  </button>
+                  <button type="button" onClick={() => setViewMode('todo')} className={`app-segbtn ${viewMode === 'todo' ? 'is-on' : ''}`}>
+                      <FaListUl /> {t.viewTodo}
+                  </button>
+              </div>
+          </div>
+      </div>
+  );
+
+  return (
+    <div className="app-shell">
+        <header className="app-topbar">
+            <div className="app-topbar-left">
+                <button type="button" className="app-iconbtn lg:hidden" onClick={() => setSidebarOpen(true)} aria-label={t.menu}>
+                    <FaBars />
+                </button>
+                <div className="app-brand" title={t.appTitle}>{t.appTitle}</div>
+            </div>
+
+            <div className="app-topbar-center">
+                {viewMode === 'calendar' && (
+                    <>
+                        <button type="button" onClick={handleToday} className="app-ghostbtn">{t.today}</button>
+                        <div className="app-navgroup" role="group" aria-label="Calendar navigation">
+                            <button type="button" onClick={handlePrev} className="app-iconbtn" aria-label="Previous">
+                                <FaChevronLeft />
+                            </button>
+                            <button type="button" onClick={handleNext} className="app-iconbtn" aria-label="Next">
+                                <FaChevronRight />
                             </button>
                         </div>
-                    ))}
-                </div>
-                
-                <div className="mt-auto pt-4 border-t">
-                     <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-                        <button onClick={() => setViewMode('calendar')} className={`flex-1 py-1.5 rounded-md text-xs font-bold flex justify-center items-center gap-1 ${viewMode === 'calendar' ? 'bg-white shadow text-indigo-700' : 'text-gray-500 hover:bg-gray-200'}`}>
+                        <div className="app-title" aria-live="polite">{calendarTitle}</div>
+                        <div className="app-viewseg" role="group" aria-label="Calendar view">
+                            <button type="button" onClick={() => handleChangeView('dayGridMonth')} className={`app-viewbtn ${calendarView === 'dayGridMonth' ? 'is-on' : ''}`}>{t.month}</button>
+                            <button type="button" onClick={() => handleChangeView('timeGridWeek')} className={`app-viewbtn ${calendarView === 'timeGridWeek' ? 'is-on' : ''}`}>{t.week}</button>
+                            <button type="button" onClick={() => handleChangeView('timeGridDay')} className={`app-viewbtn ${calendarView === 'timeGridDay' ? 'is-on' : ''}`}>{t.day}</button>
+                        </div>
+                    </>
+                )}
+                {viewMode === 'todo' && (
+                    <div className="app-title">{t.viewTodo}</div>
+                )}
+            </div>
+
+            <div className="app-topbar-right">
+                <div className="hidden md:block">
+                    <div className="app-seg">
+                        <button type="button" onClick={() => setViewMode('calendar')} className={`app-segbtn ${viewMode === 'calendar' ? 'is-on' : ''}`}>
                             <FaCalendarAlt /> {t.viewCalendar}
                         </button>
-                        <button onClick={() => setViewMode('todo')} className={`flex-1 py-1.5 rounded-md text-xs font-bold flex justify-center items-center gap-1 ${viewMode === 'todo' ? 'bg-white shadow text-indigo-700' : 'text-gray-500 hover:bg-gray-200'}`}>
+                        <button type="button" onClick={() => setViewMode('todo')} className={`app-segbtn ${viewMode === 'todo' ? 'is-on' : ''}`}>
                             <FaListUl /> {t.viewTodo}
                         </button>
                     </div>
                 </div>
-            </div>
 
-            {/* Main Content */}
-            <div className="flex-1 bg-white rounded-xl shadow-lg p-4 overflow-y-auto relative">
                 {viewMode === 'calendar' && (
-                    <>
-                    <div className="flex justify-end gap-2 mb-4">
-                         <button onClick={() => setExtModalOpen(true)} className="lg:hidden bg-gray-100 text-gray-700 px-3 py-2 rounded hover:bg-gray-200 text-sm font-bold border">
-                            <FaGlobe />
-                        </button>
-                        <button onClick={() => {
-                            setCurrentEvent({ id: null, title: '', start: getLocalISOString(), end: '', allDay: false, description: '', color: '#3788d8', completed: false });
-                            setIsEditing(false);
-                            setModalOpen(true);
-                        }} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 shadow-md text-sm font-bold flex items-center gap-2">
-                            <FaCalendarPlus /> {t.addEvent}
-                        </button>
+                    <button type="button" onClick={openNewEventModal} className="app-primarybtn">
+                        <FaCalendarPlus /> <span className="hidden sm:inline">{t.addEvent}</span>
+                    </button>
+                )}
+
+                <button type="button" onClick={toggleLang} className="app-iconbtn" aria-label="Language">
+                    <FaLanguage />
+                </button>
+                <button type="button" onClick={onLogout} className="app-iconbtn" aria-label={t.logout}>
+                    <FaSignOutAlt />
+                </button>
+            </div>
+        </header>
+
+        <div className="app-body">
+            <aside className="app-sidebar hidden lg:flex">
+                <SidebarContent />
+            </aside>
+
+            <main className="app-main">
+                {viewMode === 'calendar' && (
+                    <div className="app-calendar">
+                        <FullCalendar
+                            ref={calendarRef}
+                            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                            initialView="dayGridMonth"
+                            locale={lang}
+                            headerToolbar={false}
+                            dayMaxEvents={3}
+                            nowIndicator={true}
+                            selectable={true}
+                            editable={true}
+                            events={filteredEvents}
+                            datesSet={(arg) => {
+                                setCalendarTitle(arg.view.title);
+                                setCalendarView(arg.view.type);
+                            }}
+                            eventAllow={(_dropInfo, draggedEvent) => {
+                                 return !draggedEvent.id.toString().startsWith('ext-');
+                             }}
+                             select={(info) => {
+                                setCurrentEvent({ id: null, connectedCalendarId: '', title: '', start: info.startStr.length <= 10 ? info.startStr + "T09:00" : info.startStr, end: info.endStr, allDay: info.allDay, description: '', color: '#3788d8', completed: false });
+                                setIsEditing(false);
+                                setModalOpen(true);
+                            }}
+                             eventClick={(info) => {
+                                  const event = info.event;
+                                  const startValue = event.startStr.length <= 10 ? event.startStr + "T09:00" : event.startStr.slice(0, 16);
+                                  const endValue = event.endStr
+                                      ? (event.endStr.length <= 10 ? event.endStr + "T10:00" : event.endStr.slice(0, 16))
+                                      : '';
+                                  setCurrentEvent({
+                                      id: event.id,
+                                      connectedCalendarId: event.extendedProps.connected_calendar_id ? String(event.extendedProps.connected_calendar_id) : '',
+                                      title: event.title,
+                                      start: startValue,
+                                      end: endValue,
+                                      allDay: event.allDay,
+                                      description: event.extendedProps.description || '',
+                                      color: event.backgroundColor,
+                                      completed: event.extendedProps.completed || false,
+                                      isProviderLinked: !!event.extendedProps.is_provider_linked
+                                  });
+                                  setIsEditing(true);
+                                  setModalOpen(true);
+                              }}
+                            eventContent={(info) => {
+                                const isAllDay = info.event.allDay;
+                                const eventColor = info.event.backgroundColor || info.event.borderColor || '#3b82f6';
+
+                                return (
+                                    <div
+                                        className={`app-eventchip ${info.event.extendedProps.completed ? 'is-done' : ''}`}
+                                        style={{ '--event-color': eventColor }}
+                                    >
+                                        {!isAllDay && info.timeText && <span className="app-eventtime">{info.timeText}</span>}
+                                        <span className="app-eventtitle">{info.event.title}</span>
+                                    </div>
+                                );
+                            }}
+                            height="100%"
+                        />
                     </div>
-                    <FullCalendar
-                        ref={calendarRef}
-                        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                        initialView="dayGridMonth"
-                        locale={lang}
-                        headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' }}
-                        selectable={true}
-                        editable={true}
-                        events={filteredEvents}
-                        select={(info) => {
-                            setCurrentEvent({ id: null, title: '', start: info.startStr.length <= 10 ? info.startStr + "T09:00" : info.startStr, end: info.endStr, allDay: info.allDay, description: '', color: '#3788d8', completed: false });
-                            setIsEditing(false);
-                            setModalOpen(true);
-                        }}
-                        eventClick={(info) => {
-                            const event = info.event;
-                            if (!event.editable && event.id.startsWith('ext-')) return;
-                            setCurrentEvent({
-                                id: event.id, title: event.title, start: event.startStr.slice(0, 16), end: event.endStr ? event.endStr.slice(0, 16) : '', allDay: event.allDay,
-                                description: event.extendedProps.description || '', color: event.backgroundColor, completed: event.extendedProps.completed || false
-                            });
-                            setIsEditing(true);
-                            setModalOpen(true);
-                        }}
-                        eventContent={(info) => (
-                            <div className={`flex items-center gap-1 px-1 overflow-hidden ${info.event.extendedProps.completed ? 'opacity-50 line-through' : ''}`}>
-                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor: info.event.backgroundColor}}></div>
-                                <span className="truncate text-[10px] font-semibold">{info.timeText} {info.event.title}</span>
-                            </div>
-                        )}
-                        height="100%"
-                    />
-                    </>
                 )}
 
                 {viewMode === 'todo' && (
-                    <div className="max-w-3xl mx-auto py-4">
-                        {/* Quick Add Form with Datetime Picker */}
-                        <form onSubmit={handleQuickAdd} className="mb-6 flex flex-col md:flex-row gap-2 bg-indigo-50 p-4 rounded-xl shadow-inner border border-indigo-100">
-                            <input 
-                                type="text" 
-                                className="flex-[2] border border-indigo-200 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    <div className="app-todo">
+                        <form onSubmit={handleQuickAdd} className="app-todoadd">
+                            <input
+                                type="text"
+                                className="app-field flex-1"
                                 placeholder={t.quickAddPlaceholder}
                                 value={quickTaskTitle}
                                 onChange={(e) => setQuickTaskTitle(e.target.value)}
                             />
-                            <div className="flex-1 flex items-center gap-2 bg-white border border-indigo-200 rounded-lg p-2">
-                                <span className="text-gray-400 pl-2"><FaClock /></span>
-                                <input 
+                            <div className="app-dtwrap">
+                                <span className="app-dticon" aria-hidden="true"><FaClock /></span>
+                                <input
                                     type="datetime-local"
-                                    className="w-full focus:outline-none cursor-pointer text-sm"
+                                    className="app-dt"
                                     value={quickTaskDateTime}
                                     onChange={(e) => setQuickTaskDateTime(e.target.value)}
                                 />
                             </div>
-                            <button type="submit" className="bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2">
+                            <button type="submit" className="app-primarybtn">
                                 <FaPlus /> {t.save}
                             </button>
                         </form>
 
-                        {/* Filter Tabs */}
-                        <div className="flex border-b border-gray-200 mb-6">
-                            <button 
-                                className={`flex-1 py-3 text-center font-bold text-sm transition border-b-2 ${todoFilter === 'active' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        <div className="app-todotabs">
+                            <button
+                                type="button"
+                                className={`app-tab ${todoFilter === 'active' ? 'is-on' : ''}`}
                                 onClick={() => setTodoFilter('active')}
                             >
-                                {t.activeTasks} <span className="ml-1 bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full text-xs">{activeTasks.length}</span>
+                                {t.activeTasks} <span className="app-count">{activeTasks.length}</span>
                             </button>
-                            <button 
-                                className={`flex-1 py-3 text-center font-bold text-sm transition border-b-2 ${todoFilter === 'completed' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                            <button
+                                type="button"
+                                className={`app-tab ${todoFilter === 'completed' ? 'is-on' : ''}`}
                                 onClick={() => setTodoFilter('completed')}
                             >
-                                {t.completedTasks} <span className="ml-1 bg-green-100 text-green-600 px-2 py-0.5 rounded-full text-xs">{completedTasks.length}</span>
+                                {t.completedTasks} <span className="app-count">{completedTasks.length}</span>
                             </button>
                         </div>
 
-                        {/* Task List */}
-                        <div>
+                        <div className="app-todolist">
                             {todoFilter === 'active' && (
-                                <div>
+                                <>
                                     {activeTasks.length === 0 ? (
-                                        <p className="text-gray-400 text-center py-12 italic bg-gray-50 rounded-lg border border-dashed border-gray-200">{t.noActiveTasks}</p>
+                                        <p className="app-emptypanel">{t.noActiveTasks}</p>
                                     ) : (
-                                        <ul className="space-y-3">
+                                        <ul className="app-tasklist">
                                             {activeTasks.map(task => (
-                                                <li key={task.id} className="group flex items-center p-3 rounded-lg border border-gray-100 hover:border-indigo-200 hover:shadow-sm transition bg-white">
-                                                    <button onClick={() => toggleTaskStatus(task)} className="w-6 h-6 border-2 border-gray-300 rounded-full mr-3 flex items-center justify-center hover:border-indigo-500 transition"></button>
-                                                    <div className="flex-1 cursor-pointer" onClick={() => { 
-                                                        setCurrentEvent({ ...task, start: task.start.slice(0, 16) }); 
-                                                        setIsEditing(true); setModalOpen(true); 
-                                                    }}>
-                                                        <p className="font-medium text-gray-800">{task.title}</p>
-                                                        <p className="text-[11px] text-indigo-500 font-bold flex items-center gap-1">
-                                                            <FaClock className="text-[10px]"/> {formatDT(task.start)}
-                                                        </p>
-                                                    </div>
-                                                    <button onClick={() => deleteEvent(task.id)} className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 px-2">
+                                                <li key={task.id} className="app-taskrow">
+                                                    <button type="button" onClick={() => toggleTaskStatus(task)} className="app-checkbtn" aria-label="Toggle complete"></button>
+                                                     <button type="button" className="app-taskbody" onClick={() => {
+                                                         setCurrentEvent({
+                                                             ...task,
+                                                             connectedCalendarId: task.connected_calendar_id ? String(task.connected_calendar_id) : '',
+                                                             start: task.start.slice(0, 16)
+                                                         });
+                                                         setIsEditing(true);
+                                                         setModalOpen(true);
+                                                     }}>
+                                                        <div className="app-tasktitle">{task.title}</div>
+                                                        <div className="app-taskmeta"><FaClock /> {formatDT(task.start)}</div>
+                                                    </button>
+                                                    <button type="button" onClick={() => deleteEvent(task.id)} className="app-delbtn" title={t.delete}>
                                                         <FaTrash />
                                                     </button>
                                                 </li>
                                             ))}
                                         </ul>
                                     )}
-                                </div>
+                                </>
                             )}
 
                             {todoFilter === 'completed' && (
-                                <div className="opacity-80">
+                                <>
                                     {completedTasks.length === 0 ? (
-                                        <p className="text-gray-400 text-center py-12 italic bg-gray-50 rounded-lg border border-dashed border-gray-200">{t.noCompletedTasks}</p>
+                                        <p className="app-emptypanel">{t.noCompletedTasks}</p>
                                     ) : (
-                                        <ul className="space-y-3">
+                                        <ul className="app-tasklist">
                                             {completedTasks.map(task => (
-                                                <li key={task.id} className="group flex items-center p-3 rounded-lg border border-gray-100 bg-gray-50">
-                                                    <button onClick={() => toggleTaskStatus(task)} className="w-6 h-6 border-2 border-green-500 bg-green-500 rounded-full mr-3 flex items-center justify-center text-white text-xs">
+                                                <li key={task.id} className="app-taskrow is-done">
+                                                    <button type="button" onClick={() => toggleTaskStatus(task)} className="app-checkbtn is-on" aria-label="Toggle complete">
                                                         <FaCheck />
                                                     </button>
-                                                    <div className="flex-1 line-through text-gray-400">
-                                                        <p className="font-medium">{task.title}</p>
-                                                        <p className="text-[10px]">{formatDT(task.start)}</p>
-                                                    </div>
-                                                    <button onClick={() => deleteEvent(task.id)} className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 px-2">
+                                                     <button type="button" className="app-taskbody" onClick={() => {
+                                                         setCurrentEvent({
+                                                             ...task,
+                                                             connectedCalendarId: task.connected_calendar_id ? String(task.connected_calendar_id) : '',
+                                                             start: task.start.slice(0, 16)
+                                                         });
+                                                         setIsEditing(true);
+                                                         setModalOpen(true);
+                                                     }}>
+                                                        <div className="app-tasktitle">{task.title}</div>
+                                                        <div className="app-taskmeta"><FaClock /> {formatDT(task.start)}</div>
+                                                    </button>
+                                                    <button type="button" onClick={() => deleteEvent(task.id)} className="app-delbtn" title={t.delete}>
                                                         <FaTrash />
                                                     </button>
                                                 </li>
                                             ))}
                                         </ul>
                                     )}
-                                </div>
+                                </>
                             )}
                         </div>
                     </div>
                 )}
-            </div>
+            </main>
         </div>
+
+        <div className={`app-drawer-backdrop ${sidebarOpen ? 'is-open' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+        <aside className={`app-drawer ${sidebarOpen ? 'is-open' : ''}`} aria-hidden={!sidebarOpen}>
+            <div className="app-drawer-top">
+                <div className="app-drawer-title">{t.menu}</div>
+                <button type="button" className="app-iconbtn" onClick={() => setSidebarOpen(false)} aria-label="Close">
+                    X
+                </button>
+            </div>
+            <SidebarContent compact={true} />
+        </aside>
 
       {/* Common Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl">
+        <div className="app-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="app-modal">
             <h2 className="text-xl font-bold mb-4">{isEditing ? t.editEvent : t.newEvent}</h2>
+
+            <label className="block text-sm font-medium mb-1">{t.calendar}</label>
+            <select
+              className="w-full app-field mb-3"
+              value={currentEvent.connectedCalendarId || ''}
+              disabled={isEditing}
+              onChange={e => setCurrentEvent({ ...currentEvent, connectedCalendarId: e.target.value })}
+            >
+              <option value="">{t.localCalendar}</option>
+              {connectedCalendars.filter(c => c.provider === 'google' && c.can_write && c.is_enabled).length > 0 && (
+                <optgroup label="Google">
+                  {connectedCalendars.filter(c => c.provider === 'google' && c.can_write && c.is_enabled).map(c => (
+                    <option key={c.id} value={String(c.id)}>{c.name || c.provider_calendar_id}</option>
+                  ))}
+                </optgroup>
+              )}
+              {connectedCalendars.filter(c => c.provider === 'naverworks' && c.can_write && c.is_enabled).length > 0 && (
+                <optgroup label="NAVER WORKS">
+                  {connectedCalendars.filter(c => c.provider === 'naverworks' && c.can_write && c.is_enabled).map(c => (
+                    <option key={c.id} value={String(c.id)}>{c.name || c.provider_calendar_id}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
             
             <label className="block text-sm font-medium mb-1">{t.title}</label>
-            <input className="w-full border p-2 rounded mb-3 focus:ring-2 focus:ring-indigo-500 outline-none" value={currentEvent.title} onChange={e => setCurrentEvent({...currentEvent, title: e.target.value})} />
+            <input className="w-full app-field mb-3" value={currentEvent.title} onChange={e => setCurrentEvent({...currentEvent, title: e.target.value})} />
             
             <label className="block text-sm font-medium mb-1">{t.selectDateTime}</label>
             <input 
                 type="datetime-local" 
-                className="w-full border p-2 rounded mb-3 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                className="w-full app-field mb-3" 
                 value={currentEvent.start} 
                 onChange={e => setCurrentEvent({...currentEvent, start: e.target.value})} 
             />
 
             <label className="block text-sm font-medium mb-1">{t.desc}</label>
-            <textarea className="w-full border p-2 rounded mb-3 focus:ring-2 focus:ring-indigo-500 outline-none" rows="3" value={currentEvent.description} onChange={e => setCurrentEvent({...currentEvent, description: e.target.value})} />
+            <textarea className="w-full app-field mb-3" rows="3" value={currentEvent.description} onChange={e => setCurrentEvent({...currentEvent, description: e.target.value})} />
             
             <div className="flex gap-4 mb-4">
                 <div>
@@ -672,8 +1082,8 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
             <div className="flex justify-between">
                 {isEditing ? <button onClick={() => deleteEvent(currentEvent.id)} className="text-red-500 hover:text-red-700 font-bold">{t.delete}</button> : <div></div>}
                 <div className="flex gap-2">
-                    <button onClick={() => setModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">{t.cancel}</button>
-                    <button onClick={() => saveEvent()} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">{t.save}</button>
+                    <button onClick={() => setModalOpen(false)} className="app-ghostbtn">{t.cancel}</button>
+                    <button onClick={() => saveEvent()} className="app-primarybtn">{t.save}</button>
                 </div>
             </div>
           </div>
@@ -682,15 +1092,15 @@ function MainSchedule({ user, onLogout, t, lang, toggleLang }) {
 
       {/* External Modal */}
       {extModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FaLink /> {t.importCal}</h2>
-            <input className="w-full border p-2 rounded mb-3" placeholder="https://..." value={extCalendar.url} onChange={e => setExtCalendar({...extCalendar, url: e.target.value})} />
-            <input className="w-full border p-2 rounded mb-3" placeholder={t.calName} value={extCalendar.name} onChange={e => setExtCalendar({...extCalendar, name: e.target.value})} />
-            <input type="color" className="w-full h-10 p-1 rounded border mb-4 cursor-pointer" value={extCalendar.color} onChange={e => setExtCalendar({...extCalendar, color: e.target.value})} />
+        <div className="app-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="app-modal">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">{extIsEditing ? <FaEdit /> : <FaLink />} {extIsEditing ? t.editCal : t.importCal}</h2>
+            <input className="w-full app-field mb-3" placeholder="https://..." value={extCalendar.url} onChange={e => setExtCalendar({...extCalendar, url: e.target.value})} />
+            <input className="w-full app-field mb-3" placeholder={t.calName} value={extCalendar.name} onChange={e => setExtCalendar({...extCalendar, name: e.target.value})} />
+            <input type="color" className="w-full h-10 p-1 rounded app-field mb-4 cursor-pointer" value={extCalendar.color} onChange={e => setExtCalendar({...extCalendar, color: e.target.value})} />
             <div className="flex justify-end gap-2">
-                <button onClick={() => setExtModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">{t.cancel}</button>
-                <button onClick={saveExternalCalendar} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">{t.connect}</button>
+                <button onClick={closeExternalCalendarModal} className="app-ghostbtn">{t.cancel}</button>
+                <button onClick={saveExternalCalendar} className="app-primarybtn">{extIsEditing ? t.save : t.connect}</button>
             </div>
           </div>
         </div>
